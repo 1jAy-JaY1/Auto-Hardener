@@ -1,100 +1,103 @@
 #!/usr/bin/env python3
+import os
 import sys
 
+if os.geteuid() != 0:
+    print("[-] This script must be run as root.")
+    sys.exit(1)
+
+from logger import setup_logger
 from checks import check_firewall, check_ssh_root_login, check_shadow_permissions, check_rogue_root
 from hardener import remediate_firewall, remediate_ssh_root, remediate_shadow_permissions, remediate_rogue_root
 
+logger = setup_logger()
+
 def main():
     print("----  STARTING SECURITY RISK AUDIT  ----")
-    
-    # --- STEP 1: THE SCAN ---
+    logger.info("---- SECURITY AUDIT STARTED ----")
+
     print("\n[Phase 1] Scanning System...")
-    
     score = 100
-    report = []
-    
-# --- Check 1: Firewall Check
+
     is_firewall_active = check_firewall()
-    
     if is_firewall_active:
         print("    Firewall is ACTIVE")
-        report.append("Firewall: OK")
+        logger.info("Firewall: ACTIVE")
     else:
         print("    Firewall is INACTIVE")
-        score = score - 20
-        report.append("Firewall: FAIL")
+        score -= 20
+        logger.warning("Firewall: INACTIVE")
 
-# --- Check 2: SSH Root Login ---
     is_ssh_safe = check_ssh_root_login()
-
     if is_ssh_safe:
         print("    SSH Root Login is DISABLED")
-        report.append("SSH: OK")
+        logger.info("SSH Root Login: DISABLED")
     else:
         print("    SSH Root Login is ENABLED")
-        score = score - 30 
-        report.append("SSH: FAIL")
+        score -= 30
+        logger.warning("SSH Root Login: ENABLED")
 
-# --- Check 3: Critical File Permissions (CIS 6.1.10) ---
     is_shadow_safe = check_shadow_permissions()
-
     if is_shadow_safe:
         print("    /etc/shadow permissions are SAFE")
-        report.append("Shadow File: OK")
+        logger.info("Shadow File: SAFE")
     else:
         print("    /etc/shadow is WORLD-WRITABLE")
-        score = score - 40
-        report.append("Shadow File: FAIL")
+        score -= 40
+        logger.critical("Shadow File: WORLD-WRITABLE")
 
-# --- Check 4: Rogue Root (Backdoor Detection) ---
-    is_root_safe = check_rogue_root()
-
+    is_root_safe, rogue_user = check_rogue_root()
     if is_root_safe:
         print("    No Rogue Root accounts found")
-        report.append("User Integrity: OK")
+        logger.info("User Integrity: OK")
     else:
+        print(f"    [ALERT] Rogue Root Account Detected: {rogue_user}")
         print("    ROGUE ROOT ACCOUNT DETECTED")
-        score = score - 50
-        report.append("User Integrity: FAIL")
+        score -= 50
+        logger.critical(f"Rogue Root Account Detected: {rogue_user}")
 
-
-
-    # --- STEP 2: THE REPORT ---
     print("\n[Phase 2] Generating Risk Report...")
-    print(f"   Current Security Score: {score}/100")
-    
-    if score < 100:
-        print("    Risk Level: HIGH")
-    else:
-        print("    Risk Level: LOW")
-        print("\nSystem is secure. Exiting.")
-        sys.exit()
+    score = max(0, score)
+    print(f"    Current Security Score: {score}/100")
+    logger.info(f"Security Score: {score}/100")
 
-    # --- STEP 3: THE AUTO-FIX ---
+    if score == 100:
+        print("    Risk Level: LOW")
+        logger.info("Risk Level: LOW")
+        print("\nSystem is secure. Exiting.")
+        logger.info("---- AUDIT COMPLETE - SYSTEM SECURE ----")
+        sys.exit(0)
+    elif not is_root_safe:
+        print("    Risk Level: HIGH")
+        logger.info("Risk Level: HIGH")
+    elif score >= 60:
+        print("    Risk Level: MEDIUM")
+        logger.info("Risk Level: MEDIUM")
+    else:
+        print("    Risk Level: HIGH")
+        logger.info("Risk Level: HIGH")
+
     print("\n[Phase 3] Remediation")
-    user_choice = input("   Critical issues found. Attempt auto-hardening? (y/n): ")
-    
+    user_choice = input("    Issues found. Attempt auto-hardening? (y/n): ")
+
     if user_choice.lower() == 'y':
-        # Firewall fix
+        logger.info("Remediation started by user")
+
         if not is_firewall_active:
             remediate_firewall(simulate=False)
-
-        # SSH fix
         if not is_ssh_safe:
             remediate_ssh_root(simulate=False)
-
-	# Shadow File Fix
         if not is_shadow_safe:
             remediate_shadow_permissions(simulate=False)
-
-        # Rogue Root Fix
         if not is_root_safe:
-            remediate_rogue_root(simulate=False)
-            
+            remediate_rogue_root(rogue_user, simulate=False)
+
         print("\n    Fixes applied. Please re-run scan to verify.")
+        logger.info("---- AUDIT COMPLETE - REMEDIATION APPLIED ----")
     else:
         print("\n    Remediation cancelled by user.")
-
+        logger.info("Remediation declined by user")
+        logger.info("---- AUDIT COMPLETE ----")
 
 if __name__ == "__main__":
     main()

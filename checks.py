@@ -2,105 +2,68 @@ import os
 import subprocess
 
 def check_firewall():
-    """
-    Returns True if Firewall is Active, False if Inactive.
-    """
+    """Returns True if firewall is active, False if inactive."""
     try:
-        result = subprocess.run(['sudo', 'ufw', 'status'], capture_output=True, text=True)
-        
-        if "Status: active" in result.stdout:
-            return True
-        else:
-            return False
-            
+        result = subprocess.run(['ufw', 'status'], capture_output=True, text=True)
+        return "Status: active" in result.stdout
     except Exception as e:
-        print(f"Error checking firewall: {e}")
+        print(f"[ERROR] Error checking firewall: {e}")
         return False
 
-
 def check_ssh_root_login():
-    """
-    Returns True if Root Login is DISABLED (Safe).
-    Returns False if Root Login is ENABLED (Risk).
-    """
+    """Returns True if Root Login is DISABLED, False if ENABLED."""
+    risky_values = (
+        'PermitRootLogin yes',
+        'PermitRootLogin prohibit-password',
+        'PermitRootLogin without-password'
+    )
     try:
-        cmd = ['sudo', 'grep', '^PermitRootLogin yes', '/etc/ssh/sshd_config']
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.stdout.strip():
-            return False
-        else:
-            return True
-            
-    except Exception as e:
+        with open('/etc/ssh/sshd_config', 'r') as f:
+            for line in f:
+                if line.strip().startswith(risky_values):
+                    return False
         return True
+    except FileNotFoundError:
+        print("[ERROR] sshd_config not found. Is SSH installed?")
+        return False
+    except PermissionError:
+        print("[ERROR] Permission denied reading sshd_config.")
+        return False
+    except Exception as e:
+        print(f"[ERROR] Unexpected error checking SSH config: {e}")
+        return False
 
 def check_shadow_permissions():
-    """
-    Critical Security Control: Check if /etc/shadow is writable by everyone.
-    If it is, ANY user can overwrite passwords and become root.
-    """
-    file_path = '/etc/shadow'
-
+    """Returns True if /etc/shadow permissions are safe, False if world-writable."""
     try:
-        file_stat = os.stat(file_path)
-
+        file_stat = os.stat('/etc/shadow')
         if file_stat.st_mode & 0o002:
             return False
-        else:
-            return True
-
+        return True
     except FileNotFoundError:
-        return True
+        print("[ERROR] /etc/shadow not found.")
+        return False
     except PermissionError:
-
-        return True
+        print("[ERROR] Permission denied checking /etc/shadow.")
+        return False
 
 def check_rogue_root():
     """
-    Critical: Checks for non-root accounts with UID 0.
-    Reference: CIS Benchmark 6.2.5 (Ensure root is the only UID 0 account)
+    Returns (True, None) if no rogue root accounts found.
+    Returns (False, username) if a rogue root account is detected.
+    Reference: CIS Benchmark 6.2.5
     """
     try:
         with open('/etc/passwd', 'r') as f:
             for line in f:
                 parts = line.split(':')
+                if len(parts) < 4:
+                    continue
                 username = parts[0]
                 uid = parts[2]
-
                 if uid == '0' and username != 'root':
-                    print(f"[ALERT] Rogue Root Account Detected: {username}")
-                    return False
-
-        return True
-
+                    return False, username
+        return True, None
     except Exception as e:
-        print(f"Error checking users: {e}")
-        return False
-
-
-# --- TEST AREA ---
-if __name__ == "__main__":
-    # This block only runs if 'python3 checks.py' is ran directly
-    is_active = check_firewall()
-    
-    if is_active:
-        print("[PASS] Firewall is currently ACTIVE.")
-    else:
-        print("[FAIL] Firewall is INACTIVE.")
-
-    if check_ssh_root_login():
-        print("[PASS] SSH Root Login is DISABLED (Safe).")
-    else:
-        print("[FAIL] SSH Root Login is ENABLED (Risk!).")
-
-    if check_shadow_permissions():
-        print("[PASS] /etc/shadow permissions are safe.")
-    else:
-        print("[FAIL] /etc/shadow is WORLD WRITABLE (Critical Risk!).")
-
-    if check_rogue_root():
-        print("[PASS] No rogue root accounts found.")
-    else:
-        print("[FAIL] ROGUE ROOT ACCOUNT DETECTED!")
+        print(f"[ERROR] Error checking users: {e}")
+        return False, None
