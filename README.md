@@ -107,12 +107,14 @@ cat autohardener.log
 ## Log Format
 
 Each entry follows this format:
+
+```
 2026-05-13 10:31:56 - INFO     - Firewall: ACTIVE
 2026-05-13 10:31:56 - WARNING  - SSH Root Login: ENABLED
 2026-05-13 10:31:56 - CRITICAL - Rogue Root Account Detected: attacker_admin
 2026-05-13 10:31:56 - INFO     - FIX APPLIED: Enable Firewall (UFW)
 2026-05-13 10:31:56 - ERROR    - FIX FAILED: Restart SSH Service
-
+```
 ---
 
 ## Platform
